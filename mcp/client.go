@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"time"
 )
@@ -139,7 +138,7 @@ func (c *client3E) Read(deviceName string, offset, numPoints int64) ([]byte, err
 
 	// Receive message
 	readBuff := make([]byte, 22+2*numPoints)
-	readLen, err := io.ReadFull(c.conn, readBuff)
+	readLen, err := c.conn.Read(readBuff)
 	if err != nil {
 		c.disconnect()
 		return nil, err
