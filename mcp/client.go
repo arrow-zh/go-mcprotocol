@@ -1,9 +1,11 @@
 package mcp
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"time"
 )
@@ -123,28 +125,68 @@ func (c *client3E) HealthCheck() error {
 }
 
 // Read is send read as word command to remote plc by mc protocol
+// Read 是底层 3E 帧二进制协议的读取实现
 func (c *client3E) Read(deviceName string, offset, numPoints int64) ([]byte, error) {
+	// 1. 构造请求报文
 	requestStr := c.stn.BuildReadRequest(deviceName, offset, numPoints)
 	payload, err := hex.DecodeString(requestStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("hex decode error: %w", err)
 	}
 
-	// Send message
-	if _, err = c.conn.Write(payload); err != nil {
-		c.disconnect()
-		return nil, err
-	}
-
-	// Receive message
-	readBuff := make([]byte, 22+2*numPoints)
-	readLen, err := c.conn.Read(readBuff)
+	// ============================================================
+	// 核心改进 1：设置 2 秒绝对超时，防止掉包、断线导致的 goroutine 永久卡死
+	// ============================================================
+	// 设置读写截止时间为当前时间 + 2秒
+	err = c.conn.SetDeadline(time.Now().Add(2 * time.Second))
 	if err != nil {
 		c.disconnect()
-		return nil, err
+		return nil, fmt.Errorf("set deadline error: %w", err)
 	}
 
-	return readBuff[:readLen], nil
+	// 函数退出前，理论上应该重置 Deadline（视长连接管理策略而定）
+	// defer c.conn.SetDeadline(time.Time{})
+
+	// 2. 发送请求
+	if _, err = c.conn.Write(payload); err != nil {
+		c.disconnect()
+		return nil, fmt.Errorf("conn write error: %w", err)
+	}
+
+	// ============================================================
+	// 核心改进 2：分两步精准读取，彻底根除“256”字节偏移错位问题
+	// ============================================================
+
+	// 第一步：先严格读取前 9 个字节（MC协议固定报文头）
+	// 包含：副标题(2), 网络号(1), PC号(1), I/O号(2), 站号(1), 数据长度(2)
+	headerBuf := make([]byte, 9)
+	_, err = io.ReadFull(c.conn, headerBuf)
+	if err != nil {
+		c.disconnect()
+		return nil, fmt.Errorf("read header error (io.ReadFull): %w", err)
+	}
+
+	// 解析出 DataLength（位于 index 7-8，小端序）
+	// 这个 DataLength 告诉了我们后面还有多少个字节（结束码2字节 + 真实数据）
+	dataLen := binary.LittleEndian.Uint16(headerBuf[7:9])
+
+	// 第二步：根据准确的长度，读取剩余的所有报文
+	// 即使网络有轻微波动，io.ReadFull 也会在超时时间内等待字节凑齐
+	restBuf := make([]byte, dataLen)
+	_, err = io.ReadFull(c.conn, restBuf)
+	if err != nil {
+		c.disconnect()
+		return nil, fmt.Errorf("read body error (io.ReadFull): %w", err)
+	}
+
+	// 3. 拼接头部和身体，返回给上层 parser 处理
+	// 拼接后的完整切片结构：
+	// [0:9]   Header (之前读的)
+	// [9:11]  EndCode (在 restBuf 的起始位置)
+	// [11:]   Payload (真正的寄存器数据)
+	fullResponse := append(headerBuf, restBuf...)
+
+	return fullResponse, nil
 }
 
 // BitRead is send read as bit command to remote plc by mc protocol
