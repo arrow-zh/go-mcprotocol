@@ -46,18 +46,30 @@ func (c *client3E) connect() error {
 	if c.conn != nil {
 		return nil // 已经连接
 	}
-	conn, err := net.DialTCP("tcp", nil, c.tcpAddr)
+
+	conn, err := net.DialTimeout("tcp", c.tcpAddr.String(), 3*time.Second)
 	if err != nil {
 		return err
 	}
-	c.conn = conn
+
+	tcpConn, ok := conn.(*net.TCPConn)
+	if !ok {
+		conn.Close()
+		return fmt.Errorf("failed to assert connection to *net.TCPConn")
+	}
+
+	// 3. 赋值给你原来的变量
+	c.conn = tcpConn
 	return nil
 }
 
 // 内部方法：不加锁的断开逻辑，发生错误时清理连接
 func (c *client3E) disconnect() {
 	if c.conn != nil {
-		c.conn.Close()
+		err := c.conn.Close()
+		if err != nil {
+			return
+		}
 		c.conn = nil
 	}
 }
