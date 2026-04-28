@@ -47,7 +47,7 @@ func (c *client3E) connect() error {
 		return nil // 已经连接
 	}
 
-	conn, err := net.DialTimeout("tcp", c.tcpAddr.String(), 3*time.Second)
+	conn, err := net.DialTimeout("tcp", c.tcpAddr.String(), 1*time.Second)
 	if err != nil {
 		return err
 	}
