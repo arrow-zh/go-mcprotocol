@@ -33,6 +33,18 @@ var deviceCodes = map[string]string{
 	"B": "A0",
 	"W": "B4",
 	"D": "A8",
+	// 👇 追加：普通定时器 (Timer)
+	"TC": "C0", // 定时器线圈 (Coil - Bit位)
+	"TS": "C1", // 定时器触点 (Contact - Bit位)
+	"TN": "C2", // 定时器当前值 (Current Value - Word字)
+
+	// 👇 建议顺手追加：积算定时器 (Retentive Timer) 和 计数器 (Counter)
+	"SC": "C6", // 积算定时器线圈
+	"SS": "C7", // 积算定时器触点
+	"SN": "C8", // 积算定时器当前值
+	"CC": "C3", // 计数器线圈
+	"CS": "C4", // 计数器触点
+	"CN": "C5", // 计数器当前值
 }
 
 // Each single PLC that is connected on MELSECNET and CC-Link IE is called a station.
